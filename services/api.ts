@@ -112,7 +112,8 @@ export const api = {
     if (options.search) query.set('search', options.search);
     if (options.building) query.set('building', options.building);
     if (options.category) query.set('category', options.category);
-    const res = await request<ApiResponse<any[]>>(`/api/inventory?${query.toString()}`);
+    const path = query.toString() ? `/api/inventory?${query.toString()}` : '/api/inventory';
+    const res = await request<ApiResponse<any[]>>(path);
     return (res.data || []).map(toFrontendInventory);
   },
 
