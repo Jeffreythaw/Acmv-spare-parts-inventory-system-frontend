@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { api } from '../services/mockApi';
+import { api } from '../services/api';
 import { Criticality, Inventory, PartStatus, TxnType } from '../types';
 import { 
   Package, AlertCircle, ShoppingCart, Clock, ArrowUpRight, ArrowDownRight, 

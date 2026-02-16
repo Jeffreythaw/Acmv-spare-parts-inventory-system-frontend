@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { api } from '../services/mockApi';
+import { api } from '../services/api';
 import { Supplier } from '../types';
 import { 
   Plus, Search, Edit2, Mail, Phone, MapPin, 
