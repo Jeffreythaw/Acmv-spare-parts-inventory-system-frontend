@@ -2,17 +2,28 @@
 import { GoogleGenAI } from "@google/genai";
 import { ReorderSuggestion } from "../types";
 
-// Corrected GoogleGenAI initialization as per guidelines
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY as string | undefined;
+let ai: GoogleGenAI | null = null;
+
+function getAiClient(): GoogleGenAI | null {
+  if (!GEMINI_API_KEY) return null;
+  if (!ai) ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
+  return ai;
+}
 
 export const aiService = {
   getReplenishmentAdvice: async (suggestions: ReorderSuggestion[]) => {
     try {
+      const client = getAiClient();
+      if (!client) {
+        return "AI assistant is not configured. Set VITE_GEMINI_API_KEY in frontend environment variables.";
+      }
+
       const prompt = `Analyze these inventory reorder suggestions for an ACMV (HVAC) spare parts system and provide a 2-3 sentence strategic advice on which items to prioritize and why. 
       Suggestions: ${JSON.stringify(suggestions)}`;
       
       // Updated to use 'gemini-3-flash-preview' for basic text tasks
-      const response = await ai.models.generateContent({
+      const response = await client.models.generateContent({
         model: 'gemini-3-flash-preview',
         contents: prompt,
         config: {
