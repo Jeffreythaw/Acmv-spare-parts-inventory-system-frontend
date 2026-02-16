@@ -1,0 +1,7 @@
+{
+  "name": "Copy of ACMV Spare Parts Inventory System",
+  "description": "A production-ready ACMV (Air Conditioning & Mechanical Ventilation) inventory management system featuring stock tracking, automated reordering workflows (PR/PO), and detailed audit reporting.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
