@@ -42,6 +42,12 @@ export enum POStatus {
   CANCELLED = 'CANCELLED'
 }
 
+export enum ScheduleStatus {
+  SCHEDULED = 'SCHEDULED',
+  COMPLETED = 'COMPLETED',
+  CANCELLED = 'CANCELLED'
+}
+
 export interface Inventory {
   id: string;
   building: string;
@@ -152,6 +158,23 @@ export interface ReorderSuggestion {
   reorderPoint: number;
   suggestedQty: number;
   preferredSupplierId?: string;
+}
+
+export interface OrderScheduleLine {
+  inventoryId: string;
+  qty: number;
+}
+
+export interface OrderSchedule {
+  id: string;
+  scheduledDate: string;
+  createdBy: string;
+  supplierId: string;
+  remark: string;
+  status: ScheduleStatus;
+  lines: OrderScheduleLine[];
+  createdAt: string;
+  lastUpdated: string;
 }
 
 // Added missing InventoryFilterOptions interface

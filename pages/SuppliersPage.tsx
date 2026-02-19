@@ -50,7 +50,14 @@ const SuppliersPage: React.FC = () => {
     e.preventDefault();
     if (!currentSupplier || !currentSupplier.name) return;
     try {
-      await api.saveSupplier(currentSupplier);
+      await api.saveSupplier({
+        ...currentSupplier,
+        name: currentSupplier.name || '',
+        email: currentSupplier.email || '',
+        phone: currentSupplier.phone || '',
+        address: currentSupplier.address || '',
+        remark: currentSupplier.remark || '',
+      });
       setShowModal(false);
       fetchSuppliers();
     } catch (err: any) {
@@ -183,7 +190,7 @@ const SuppliersPage: React.FC = () => {
 
         <button 
           onClick={() => {
-            setCurrentSupplier({ name: '', email: '', phone: '', address: '', active: true });
+            setCurrentSupplier({ name: '', email: '', phone: '', address: '', remark: '', active: true });
             setShowModal(true);
           }}
           className="flex items-center justify-center space-x-3 bg-slate-900 hover:bg-slate-800 text-white px-8 py-4 rounded-2xl transition-all shadow-xl shadow-slate-900/20 active:scale-95 font-black text-xs uppercase tracking-widest"
@@ -350,7 +357,7 @@ const SuppliersPage: React.FC = () => {
                 onClick={() => setSelectedIds([])}
                 className="flex items-center space-x-2 px-6 py-3 bg-slate-800 text-slate-400 rounded-xl font-black text-[10px] uppercase tracking-widest hover:text-white hover:bg-slate-700 transition-all active:scale-95"
               >
-                <XUI size={16} />
+                    <X size={16} />
                 <span>Clear Selection</span>
               </button>
             </div>
@@ -376,7 +383,7 @@ const SuppliersPage: React.FC = () => {
                 onClick={() => setShowBulkModal(false)} 
                 className="w-12 h-12 flex items-center justify-center rounded-[1rem] bg-white border border-slate-200 text-slate-400 hover:text-slate-900 transition-all shadow-sm active:scale-90"
               >
-                <XUI size={24} />
+                <X size={24} />
               </button>
             </div>
             
@@ -478,7 +485,7 @@ const SuppliersPage: React.FC = () => {
                 onClick={() => setShowModal(false)} 
                 className="w-12 h-12 flex items-center justify-center rounded-2xl bg-white border border-slate-200 text-slate-400 hover:text-slate-900 transition-all shadow-sm active:scale-90"
               >
-                <XUI size={24} />
+                <X size={24} />
               </button>
             </div>
             
@@ -580,10 +587,5 @@ const SuppliersPage: React.FC = () => {
     </div>
   );
 };
-
-// Re-using the X icon for UI consistency
-const XUI = ({ size }: { size: number }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-);
 
 export default SuppliersPage;

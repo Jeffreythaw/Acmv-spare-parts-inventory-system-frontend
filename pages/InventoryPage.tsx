@@ -93,8 +93,8 @@ const InventoryPage: React.FC = () => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
-  const [bulkUpdates, setBulkUpdates] = useState<{status?: PartStatus; reorderPoint?: number; preferredSupplierId?: string; criticality?: Criticality}>({});
-  const [bulkFieldsEnabled, setBulkFieldsEnabled] = useState({status: false, reorderPoint: false, preferredSupplierId: false, criticality: false});
+  const [bulkUpdates, setBulkUpdates] = useState<{status?: PartStatus; minStock?: number; reorderPoint?: number; preferredSupplierId?: string; criticality?: Criticality}>({});
+  const [bulkFieldsEnabled, setBulkFieldsEnabled] = useState({status: false, minStock: false, reorderPoint: false, preferredSupplierId: false, criticality: false});
 
   const addDropdownOption = (type: 'building' | 'category' | 'unit' | 'systemType') => {
     if (!canEdit()) return;
@@ -225,7 +225,34 @@ const InventoryPage: React.FC = () => {
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!currentItem) return;
-    await api.saveInventory(currentItem);
+    const minStock = Math.max(0, currentItem.minStock ?? 1);
+    const reorderPoint =
+      currentItem.reorderPoint === undefined || currentItem.reorderPoint === null || currentItem.reorderPoint <= 0
+        ? minStock
+        : Math.max(0, currentItem.reorderPoint);
+    const quantityOnHand = Math.max(0, currentItem.quantityOnHand ?? 0);
+
+    await api.saveInventory({
+      ...currentItem,
+      building: currentItem.building || buildingOptions[0] || BUILDINGS[0],
+      room: currentItem.room || '',
+      tagNo: currentItem.tagNo || '',
+      installationType: currentItem.installationType || '',
+      systemType: currentItem.systemType || systemTypeOptions[0] || '',
+      brand: currentItem.brand || '',
+      equipmentModel: currentItem.equipmentModel || '',
+      partCategory: currentItem.partCategory || categoryOptions[0] || CATEGORIES[0],
+      partName: currentItem.partName || '',
+      partModel: currentItem.partModel || '',
+      unit: currentItem.unit || unitOptions[0] || 'pcs',
+      specs: currentItem.specs || '',
+      remark: currentItem.remark || '',
+      minStock,
+      reorderPoint,
+      quantityOnHand,
+      preferredSupplierId: currentItem.preferredSupplierId || '',
+      locationBin: currentItem.locationBin || '',
+    });
     setShowModal(false);
     fetchItems();
   };
@@ -234,6 +261,7 @@ const InventoryPage: React.FC = () => {
     e.preventDefault();
     const updates: Partial<Inventory> = {};
     if (bulkFieldsEnabled.status) updates.status = bulkUpdates.status;
+    if (bulkFieldsEnabled.minStock) updates.minStock = Math.max(0, bulkUpdates.minStock ?? 0);
     if (bulkFieldsEnabled.reorderPoint) updates.reorderPoint = bulkUpdates.reorderPoint;
     if (bulkFieldsEnabled.preferredSupplierId) updates.preferredSupplierId = bulkUpdates.preferredSupplierId;
     if (bulkFieldsEnabled.criticality) updates.criticality = bulkUpdates.criticality;
@@ -313,12 +341,24 @@ const InventoryPage: React.FC = () => {
                     setCurrentItem({
                       partName: '',
                       building: buildingOptions[0] || BUILDINGS[0],
+                      room: '',
+                      tagNo: '',
+                      installationType: '',
+                      brand: '',
+                      equipmentModel: '',
                       partCategory: categoryOptions[0] || CATEGORIES[0],
+                      partModel: '',
                       minStock: 1,
+                      quantityOnHand: 0,
                       unit: unitOptions[0] || 'pcs',
                       status: PartStatus.Spare,
                       criticality: Criticality.MEDIUM,
-                      systemType: systemTypeOptions[0] || ''
+                      systemType: systemTypeOptions[0] || '',
+                      specs: '',
+                      remark: '',
+                      reorderPoint: 1,
+                      preferredSupplierId: suppliers[0]?.id || '',
+                      locationBin: '',
                     });
                     setShowModal(true);
                   }}
@@ -347,104 +387,110 @@ const InventoryPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Main Inventory List (Responsive Grid) */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 px-1">
+      {/* Main Inventory List (Grid-Line Table View) */}
+      <div className="bg-white border-2 border-slate-100 rounded-[2rem] overflow-hidden shadow-lg">
         {loading ? (
-          <div className="col-span-full py-32 text-center">
+          <div className="py-32 text-center">
             <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
             <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Hydrating Catalog Registry...</p>
           </div>
         ) : items.length === 0 ? (
-          <div className="col-span-full py-32 text-center bg-white rounded-[3rem] border-2 border-dashed border-slate-100">
+          <div className="py-32 text-center bg-white">
             <Package className="mx-auto text-slate-100 mb-4" size={48} />
             <p className="text-slate-400 font-black text-[10px] uppercase tracking-[0.2em]">Asset Registry Empty</p>
           </div>
-        ) : items.map(item => {
-          const health = getHealthStatus(item);
-          const isSelected = selectedIds.includes(item.id);
-
-          return (
-            <div 
-              key={item.id} 
-              className={`group bg-white rounded-[2.5rem] border-2 transition-all duration-500 shadow-lg cursor-pointer overflow-hidden flex flex-col ${isSelected ? 'border-blue-600 shadow-blue-600/10' : 'border-slate-100 shadow-slate-200/20'}`}
-              onClick={() => { setCurrentItem(item); fetchItemAudit(item.id); setShowDetail(true); }}
-            >
-              <div className="p-6 pb-2">
-                <div className="flex justify-between items-start mb-4">
-                  <div className="flex items-center space-x-2">
-                    <div className={`px-3 py-1 rounded-lg text-[8px] font-black uppercase tracking-widest ${health.bg} ${health.text}`}>
-                      {health.label}
-                    </div>
-                    {item.criticality === Criticality.HIGH && (
-                      <div className="bg-amber-500 text-white p-1 rounded-full animate-pulse"><Zap size={10} /></div>
-                    )}
-                  </div>
-                  <button 
-                    onClick={(e) => { e.stopPropagation(); toggleSelectItem(item.id); }}
-                    className={`w-8 h-8 rounded-xl flex items-center justify-center border transition-all ${isSelected ? 'bg-blue-600 text-white border-blue-600' : 'bg-slate-50 text-slate-300 border-slate-100'}`}
-                  >
-                    <Check size={14} />
-                  </button>
-                </div>
-
-                <div className="flex space-x-4">
-                  {item.image && (
-                    <img src={item.image} alt={item.partName} className="w-16 h-16 rounded-xl object-cover border border-slate-100 flex-shrink-0" />
-                  )}
-                  <div className="space-y-1">
-                    <h3 className="font-black text-slate-900 text-base leading-tight tracking-tight uppercase group-hover:text-blue-600 transition-colors line-clamp-2 min-h-[2.5rem]">{item.partName}</h3>
-                    <div className="flex items-center text-[9px] font-black text-slate-400 uppercase tracking-widest bg-slate-50 px-2 py-1 rounded-lg w-fit">
-                      <Binary size={10} className="mr-1.5" />
-                      <span>{item.tagNo || 'NO TAG'}</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="px-6 py-4 flex-1 space-y-4">
-                 <div className="flex items-center space-x-3 text-slate-500">
-                   <MapPin size={14} className="flex-shrink-0 text-slate-300" />
-                   <span className="text-[10px] font-bold truncate">{item.building} • {item.room || 'Storage'}</span>
-                 </div>
-                 <div className="flex items-center justify-between">
-                   <div className="flex flex-col">
-                      <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Inventory Status</span>
-                      <span className="text-[10px] font-black text-slate-900">{item.quantityOnHand} <span className="text-slate-400 uppercase">{item.unit}</span></span>
-                   </div>
-                   <div className="flex flex-col items-end">
-                      <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Bin Loc</span>
-                      <span className="text-[10px] font-black text-slate-900">{item.locationBin || '--'}</span>
-                   </div>
-                 </div>
-              </div>
-
-              <div className="px-6 py-4 bg-slate-50/50 border-t border-slate-50 flex justify-between items-center">
-                 <div className={`text-[9px] font-black uppercase tracking-widest px-3 py-1 rounded-lg ${STATUS_COLORS[item.status]}`}>
-                   {item.status}
-                 </div>
-                 <div className="flex space-x-1">
-                    <button className="p-2.5 bg-white border border-slate-200 rounded-xl text-slate-400 hover:text-blue-600 shadow-sm transition-all"><Info size={14} /></button>
-                    {canEdit() && (
-                      <button 
-                        onClick={(e) => { e.stopPropagation(); setCurrentItem(item); setShowModal(true); }}
-                        className="p-2.5 bg-white border border-slate-200 rounded-xl text-slate-400 hover:text-blue-600 shadow-sm transition-all"
-                      >
-                        <Edit2 size={14} />
-                      </button>
-                    )}
-                    {isAdmin() && (
-                      <button
-                        onClick={(e) => { e.stopPropagation(); handleDeleteItem(item.id); }}
-                        className="p-2.5 bg-white border border-red-200 rounded-xl text-red-500 hover:text-red-600 shadow-sm transition-all"
-                      >
-                        <X size={14} />
-                      </button>
-                    )}
-                 </div>
-              </div>
-            </div>
-          );
-        })}
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[1120px] border-collapse">
+              <thead>
+                <tr className="bg-slate-50 text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">
+                  <th className="border-b border-r border-slate-200 px-4 py-3 text-center w-14"></th>
+                  <th className="border-b border-r border-slate-200 px-4 py-3 text-left">Part</th>
+                  <th className="border-b border-r border-slate-200 px-4 py-3 text-left">Tag / Model</th>
+                  <th className="border-b border-r border-slate-200 px-4 py-3 text-left">Location</th>
+                  <th className="border-b border-r border-slate-200 px-4 py-3 text-center">Status</th>
+                  <th className="border-b border-r border-slate-200 px-4 py-3 text-center">Criticality</th>
+                  <th className="border-b border-r border-slate-200 px-4 py-3 text-right">Qty</th>
+                  <th className="border-b border-r border-slate-200 px-4 py-3 text-right">Min / Reorder</th>
+                  <th className="border-b border-r border-slate-200 px-4 py-3 text-left">Supplier</th>
+                  <th className="border-b border-slate-200 px-4 py-3 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {items.map(item => {
+                  const isSelected = selectedIds.includes(item.id);
+                  const supplierName = suppliers.find(s => s.id === item.preferredSupplierId)?.name || '--';
+                  return (
+                    <tr
+                      key={item.id}
+                      className={`${isSelected ? 'bg-blue-50/40' : 'bg-white'} hover:bg-slate-50 transition-colors cursor-pointer`}
+                      onClick={() => { setCurrentItem(item); fetchItemAudit(item.id); setShowDetail(true); }}
+                    >
+                      <td className="border-b border-r border-slate-200 px-4 py-3 text-center">
+                        <button
+                          onClick={(e) => { e.stopPropagation(); toggleSelectItem(item.id); }}
+                          className={`w-7 h-7 rounded-lg inline-flex items-center justify-center border ${isSelected ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-400 border-slate-200'}`}
+                        >
+                          <Check size={13} />
+                        </button>
+                      </td>
+                      <td className="border-b border-r border-slate-200 px-4 py-3">
+                        <div className="font-black text-sm text-slate-900">{item.partName}</div>
+                        <div className="text-[10px] text-slate-500 font-semibold uppercase">{item.partCategory || '--'}</div>
+                      </td>
+                      <td className="border-b border-r border-slate-200 px-4 py-3">
+                        <div className="text-xs font-bold text-slate-700">{item.tagNo || '--'}</div>
+                        <div className="text-[10px] text-slate-500">{item.partModel || item.equipmentModel || '--'}</div>
+                      </td>
+                      <td className="border-b border-r border-slate-200 px-4 py-3 text-xs font-semibold text-slate-700">
+                        {item.building} / {item.room || '--'} / {item.locationBin || '--'}
+                      </td>
+                      <td className="border-b border-r border-slate-200 px-4 py-3 text-center">
+                        <span className={`text-[9px] font-black uppercase tracking-wider px-2.5 py-1 rounded-md ${STATUS_COLORS[item.status]}`}>{item.status}</span>
+                      </td>
+                      <td className="border-b border-r border-slate-200 px-4 py-3 text-center">
+                        <span className={`text-[9px] font-black uppercase tracking-wider px-2.5 py-1 rounded-md ${item.criticality === Criticality.HIGH ? 'bg-red-100 text-red-700' : item.criticality === Criticality.LOW ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                          {item.criticality || 'Medium'}
+                        </span>
+                      </td>
+                      <td className="border-b border-r border-slate-200 px-4 py-3 text-right">
+                        <div className="font-black text-slate-900">{item.quantityOnHand}</div>
+                        <div className="text-[10px] text-slate-500 uppercase">{item.unit}</div>
+                      </td>
+                      <td className="border-b border-r border-slate-200 px-4 py-3 text-right text-xs font-semibold text-slate-700">
+                        {item.minStock} / {item.reorderPoint || item.minStock}
+                      </td>
+                      <td className="border-b border-r border-slate-200 px-4 py-3 text-xs font-semibold text-slate-700">{supplierName}</td>
+                      <td className="border-b border-slate-200 px-4 py-3">
+                        <div className="flex justify-end gap-1">
+                          <button onClick={(e) => { e.stopPropagation(); setCurrentItem(item); fetchItemAudit(item.id); setShowDetail(true); }} className="p-2 bg-white border border-slate-200 rounded-lg text-slate-500 hover:text-blue-600">
+                            <Info size={13} />
+                          </button>
+                          {canEdit() && (
+                            <button
+                              onClick={(e) => { e.stopPropagation(); setCurrentItem(item); setShowModal(true); }}
+                              className="p-2 bg-white border border-slate-200 rounded-lg text-slate-500 hover:text-blue-600"
+                            >
+                              <Edit2 size={13} />
+                            </button>
+                          )}
+                          {isAdmin() && (
+                            <button
+                              onClick={(e) => { e.stopPropagation(); handleDeleteItem(item.id); }}
+                              className="p-2 bg-white border border-red-200 rounded-lg text-red-500 hover:text-red-600"
+                            >
+                              <X size={13} />
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       {/* Asset Detail Overlay (Bottom Sheet / Drawer) */}
@@ -665,8 +711,8 @@ const InventoryPage: React.FC = () => {
       {/* Asset Editor Modal */}
       {showModal && currentItem && (
         <div className="fixed inset-0 z-[130] flex items-end lg:items-center justify-center bg-slate-900/60 backdrop-blur-md p-0 lg:p-6 animate-in fade-in">
-          <div className="bg-white w-full lg:max-w-4xl rounded-t-[3rem] lg:rounded-[3.5rem] shadow-2xl max-h-[95vh] overflow-y-auto animate-in slide-in-from-bottom duration-500 scrollbar-hide">
-            <div className="sticky top-0 bg-white/95 backdrop-blur-md px-10 py-8 border-b border-slate-100 flex justify-between items-center z-30">
+          <div className="bg-white w-full lg:max-w-5xl rounded-t-[3rem] lg:rounded-[3.5rem] shadow-2xl max-h-[95vh] overflow-y-auto overflow-x-hidden animate-in slide-in-from-bottom duration-500 scrollbar-hide">
+            <div className="sticky top-0 bg-white/95 backdrop-blur-md px-6 lg:px-10 py-6 lg:py-8 border-b border-slate-100 flex justify-between items-center z-30">
               <div className="flex items-center space-x-5">
                 <div className="w-12 h-12 bg-blue-600 rounded-2xl flex items-center justify-center text-white shadow-xl shadow-blue-600/20">
                   <Edit2 size={24} />
@@ -679,10 +725,10 @@ const InventoryPage: React.FC = () => {
               <button onClick={() => { stopCamera(); setShowModal(false); }} className="w-12 h-12 flex items-center justify-center rounded-2xl bg-slate-50 text-slate-400 active:scale-90 transition-all"><X size={24} /></button>
             </div>
 
-            <form onSubmit={handleSave} className="p-10 lg:p-14 space-y-12 pb-24">
+            <form onSubmit={handleSave} className="p-6 lg:p-10 space-y-8 pb-24">
               
               {/* Asset Identity & Photo Section */}
-              <div className="grid grid-cols-1 lg:grid-cols-12 gap-12">
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-10">
                 <div className="lg:col-span-4 space-y-6">
                    <div className="relative group">
                       {isCameraActive ? (
@@ -714,12 +760,12 @@ const InventoryPage: React.FC = () => {
                    </div>
                 </div>
 
-                <div className="lg:col-span-8 space-y-8">
+                <div className="lg:col-span-8 space-y-6">
                   <div className="space-y-3">
                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-1">Asset Name *</label>
                     <input className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-5 font-black text-lg text-slate-900 focus:border-blue-500 focus:bg-white outline-none transition-all shadow-sm" placeholder="e.g. Axial Fan Bearing Set" required value={currentItem.partName || ''} onChange={e => setCurrentItem({...currentItem, partName: e.target.value})} />
                   </div>
-                  <div className="grid grid-cols-2 gap-6">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="space-y-3">
                       <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-1">Asset Criticality</label>
                       <select className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 text-xs font-black" value={currentItem.criticality} onChange={e => setCurrentItem({...currentItem, criticality: e.target.value as Criticality})}>
@@ -731,30 +777,60 @@ const InventoryPage: React.FC = () => {
                       <input className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 font-mono font-bold text-slate-700" placeholder="TAG-XXXX" value={currentItem.tagNo || ''} onChange={e => setCurrentItem({...currentItem, tagNo: e.target.value})} />
                     </div>
                   </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="space-y-3">
+                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-1">Part Status</label>
+                      <select className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 text-xs font-black" value={currentItem.status || PartStatus.Spare} onChange={e => setCurrentItem({...currentItem, status: e.target.value as PartStatus})}>
+                        {Object.values(PartStatus).map(s => <option key={s} value={s}>{s}</option>)}
+                      </select>
+                    </div>
+                    <div className="space-y-3">
+                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-1">Quantity On Hand</label>
+                      <input type="number" className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 font-black text-slate-700" value={currentItem.quantityOnHand ?? 0} onChange={e => setCurrentItem({...currentItem, quantityOnHand: parseInt(e.target.value) || 0})} />
+                    </div>
+                  </div>
                 </div>
               </div>
 
               {/* Technical Specifications Workflow Section */}
-              <div className="space-y-8">
+              <div className="space-y-6">
                 <div className="flex items-center space-x-3 text-slate-400">
                    <Wrench size={16} />
                    <h4 className="text-[10px] font-black uppercase tracking-[0.2em]">Engineering Specification Sheet</h4>
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="space-y-3">
                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-1">Detailed Technical Specs (Manual Copy)</label>
                     <textarea rows={5} className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-5 font-mono text-sm text-slate-700 outline-none focus:border-blue-500 focus:bg-white transition-all resize-none shadow-sm" placeholder="e.g. Voltage: 415V, Frequency: 50Hz, Phase: 3, Refrigerant: R134a..." value={currentItem.specs || ''} onChange={e => setCurrentItem({...currentItem, specs: e.target.value})} />
                   </div>
-                  <div className="space-y-6">
+                  <div className="space-y-5">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div className="space-y-3">
+                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-1">Installation Type</label>
+                        <input className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 font-bold text-slate-700" value={currentItem.installationType || ''} onChange={e => setCurrentItem({...currentItem, installationType: e.target.value})} />
+                      </div>
+                      <div className="space-y-3">
+                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-1">Brand</label>
+                        <input className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 font-bold text-slate-700" value={currentItem.brand || ''} onChange={e => setCurrentItem({...currentItem, brand: e.target.value})} />
+                      </div>
+                      <div className="space-y-3">
+                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-1">Equipment Model</label>
+                        <input className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 font-bold text-slate-700" value={currentItem.equipmentModel || ''} onChange={e => setCurrentItem({...currentItem, equipmentModel: e.target.value})} />
+                      </div>
+                      <div className="space-y-3">
+                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-1">Part Model</label>
+                        <input className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 font-bold text-slate-700" value={currentItem.partModel || ''} onChange={e => setCurrentItem({...currentItem, partModel: e.target.value})} />
+                      </div>
+                    </div>
                     <div className="space-y-3">
                       <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-1">System Classification</label>
                       <select className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 text-xs font-black shadow-sm" value={currentItem.systemType || ''} onChange={e => setCurrentItem({...currentItem, systemType: e.target.value})}>
                         {systemTypeOptions.map(s => <option key={s}>{s}</option>)}
                       </select>
                       {canEdit() && (
-                        <div className="flex gap-2">
+                        <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
                           <input
-                            className="flex-1 bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold"
+                            className="min-w-0 bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold"
                             placeholder="Add system type"
                             value={optionDrafts.systemType}
                             onChange={e => setOptionDrafts({ ...optionDrafts, systemType: e.target.value })}
@@ -765,7 +841,7 @@ const InventoryPage: React.FC = () => {
                               }
                             }}
                           />
-                          <button type="button" onClick={() => addDropdownOption('systemType')} className="px-3 py-2 bg-slate-900 text-white rounded-xl text-[10px] font-black uppercase tracking-wider">
+                          <button type="button" onClick={() => addDropdownOption('systemType')} className="shrink-0 px-3 py-2 bg-slate-900 text-white rounded-xl text-[10px] font-black uppercase tracking-wider whitespace-nowrap">
                             Add
                           </button>
                         </div>
@@ -775,26 +851,30 @@ const InventoryPage: React.FC = () => {
                       <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-1">Warranty Expiry / Shelf Life</label>
                       <input type="date" className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 text-sm font-bold shadow-sm" value={currentItem.warrantyExpiry || ''} onChange={e => setCurrentItem({...currentItem, warrantyExpiry: e.target.value})} />
                     </div>
+                    <div className="space-y-3">
+                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-1">Maintenance Remark</label>
+                      <textarea rows={3} className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 text-sm font-bold text-slate-700 shadow-sm resize-none" value={currentItem.remark || ''} onChange={e => setCurrentItem({...currentItem, remark: e.target.value})} />
+                    </div>
                   </div>
                 </div>
               </div>
 
               {/* Logistics & Inventory Thresholds */}
-              <div className="space-y-8">
+              <div className="space-y-6">
                 <div className="flex items-center space-x-3 text-slate-400">
                    <MapPin size={16} />
                    <h4 className="text-[10px] font-black uppercase tracking-[0.2em]">Logistics & Control Parameters</h4>
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-8">
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-5">
                   <div className="space-y-3">
                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-1">Building</label>
                     <select className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 text-xs font-black shadow-sm" value={currentItem.building} onChange={e => setCurrentItem({...currentItem, building: e.target.value})}>
                       {buildingOptions.map(b => <option key={b}>{b}</option>)}
                     </select>
                     {canEdit() && (
-                      <div className="flex gap-2">
+                      <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
                         <input
-                          className="flex-1 bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold"
+                          className="min-w-0 bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold"
                           placeholder="Add building"
                           value={optionDrafts.building}
                           onChange={e => setOptionDrafts({ ...optionDrafts, building: e.target.value })}
@@ -805,11 +885,15 @@ const InventoryPage: React.FC = () => {
                             }
                           }}
                         />
-                        <button type="button" onClick={() => addDropdownOption('building')} className="px-3 py-2 bg-slate-900 text-white rounded-xl text-[10px] font-black uppercase tracking-wider">
+                        <button type="button" onClick={() => addDropdownOption('building')} className="shrink-0 px-3 py-2 bg-slate-900 text-white rounded-xl text-[10px] font-black uppercase tracking-wider whitespace-nowrap">
                           Add
                         </button>
                       </div>
                     )}
+                  </div>
+                  <div className="space-y-3">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-1">Room</label>
+                    <input className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 text-sm font-bold shadow-sm" value={currentItem.room || ''} onChange={e => setCurrentItem({...currentItem, room: e.target.value})} />
                   </div>
                   <div className="space-y-3">
                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-1">Category</label>
@@ -817,9 +901,9 @@ const InventoryPage: React.FC = () => {
                       {categoryOptions.map(c => <option key={c}>{c}</option>)}
                     </select>
                     {canEdit() && (
-                      <div className="flex gap-2">
+                      <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
                         <input
-                          className="flex-1 bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold"
+                          className="min-w-0 bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold"
                           placeholder="Add category"
                           value={optionDrafts.category}
                           onChange={e => setOptionDrafts({ ...optionDrafts, category: e.target.value })}
@@ -830,7 +914,7 @@ const InventoryPage: React.FC = () => {
                             }
                           }}
                         />
-                        <button type="button" onClick={() => addDropdownOption('category')} className="px-3 py-2 bg-slate-900 text-white rounded-xl text-[10px] font-black uppercase tracking-wider">
+                        <button type="button" onClick={() => addDropdownOption('category')} className="shrink-0 px-3 py-2 bg-slate-900 text-white rounded-xl text-[10px] font-black uppercase tracking-wider whitespace-nowrap">
                           Add
                         </button>
                       </div>
@@ -842,9 +926,9 @@ const InventoryPage: React.FC = () => {
                       {unitOptions.map(unit => <option key={unit}>{unit}</option>)}
                     </select>
                     {canEdit() && (
-                      <div className="flex gap-2">
+                      <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
                         <input
-                          className="flex-1 bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold"
+                          className="min-w-0 bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold"
                           placeholder="Add unit"
                           value={optionDrafts.unit}
                           onChange={e => setOptionDrafts({ ...optionDrafts, unit: e.target.value })}
@@ -855,27 +939,62 @@ const InventoryPage: React.FC = () => {
                             }
                           }}
                         />
-                        <button type="button" onClick={() => addDropdownOption('unit')} className="px-3 py-2 bg-slate-900 text-white rounded-xl text-[10px] font-black uppercase tracking-wider">
+                        <button type="button" onClick={() => addDropdownOption('unit')} className="shrink-0 px-3 py-2 bg-slate-900 text-white rounded-xl text-[10px] font-black uppercase tracking-wider whitespace-nowrap">
                           Add
                         </button>
                       </div>
                     )}
                   </div>
                   <div className="space-y-3">
-                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-1">Safety Min</label>
-                    <input type="number" className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 text-center font-black" value={currentItem.minStock} onChange={e => setCurrentItem({...currentItem, minStock: parseInt(e.target.value)})} />
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-1">Min Stock</label>
+                    <input
+                      type="number"
+                      min={0}
+                      className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 text-center font-black"
+                      value={currentItem.minStock ?? 0}
+                      onChange={e => {
+                        const nextMin = Math.max(0, parseInt(e.target.value) || 0);
+                        const existingReorder = currentItem.reorderPoint ?? 0;
+                        setCurrentItem({
+                          ...currentItem,
+                          minStock: nextMin,
+                          reorderPoint: existingReorder <= 0 ? nextMin : existingReorder,
+                        });
+                      }}
+                    />
+                    <p className="text-[10px] font-semibold text-slate-500">When stock is below this level, item is flagged as low stock.</p>
                   </div>
                   <div className="space-y-3">
                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-1">Reorder Point</label>
-                    <input type="number" className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 text-center font-black" value={currentItem.reorderPoint || 0} onChange={e => setCurrentItem({...currentItem, reorderPoint: parseInt(e.target.value)})} />
+                    <input
+                      type="number"
+                      min={0}
+                      className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 text-center font-black"
+                      value={currentItem.reorderPoint ?? currentItem.minStock ?? 0}
+                      onChange={e => setCurrentItem({...currentItem, reorderPoint: Math.max(0, parseInt(e.target.value) || 0)})}
+                    />
+                    <p className="text-[10px] font-semibold text-slate-500">Default follows Min Stock if left as 0.</p>
+                  </div>
+                  <div className="space-y-3">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-1">Location Bin</label>
+                    <input className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 text-sm font-bold shadow-sm" value={currentItem.locationBin || ''} onChange={e => setCurrentItem({...currentItem, locationBin: e.target.value})} />
+                  </div>
+                  <div className="space-y-3">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-1">Preferred Supplier</label>
+                    <select className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 text-xs font-black shadow-sm" value={currentItem.preferredSupplierId || ''} onChange={e => setCurrentItem({...currentItem, preferredSupplierId: e.target.value})}>
+                      <option value="">None</option>
+                      {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                    </select>
                   </div>
                 </div>
               </div>
               
-              <button type="submit" className="w-full bg-blue-600 hover:bg-blue-700 text-white py-8 rounded-[2rem] font-black uppercase tracking-[0.2em] shadow-2xl shadow-blue-600/30 active:scale-[0.98] transition-all flex items-center justify-center space-x-4">
+              <div className="sticky bottom-0 z-20 bg-white/95 backdrop-blur-sm pt-3">
+              <button type="submit" className="w-full bg-blue-600 hover:bg-blue-700 text-white py-6 rounded-[1.75rem] font-black uppercase tracking-[0.16em] shadow-2xl shadow-blue-600/30 active:scale-[0.98] transition-all flex items-center justify-center space-x-4">
                 <CheckCircle2 size={24} />
                 <span>Synchronize Asset to Registry</span>
               </button>
+              </div>
             </form>
           </div>
         </div>
@@ -947,6 +1066,23 @@ const InventoryPage: React.FC = () => {
                 <div className="p-6 bg-slate-50 rounded-[2rem] border border-slate-100 space-y-4">
                    <div className="flex items-center justify-between">
                       <div className="flex items-center space-x-4">
+                         <input type="checkbox" className="w-6 h-6 accent-blue-600 rounded" checked={bulkFieldsEnabled.minStock} onChange={e => setBulkFieldsEnabled({...bulkFieldsEnabled, minStock: e.target.checked})} />
+                         <span className="text-[11px] font-black text-slate-900 uppercase tracking-widest">Min Stock</span>
+                      </div>
+                      <input
+                        type="number"
+                        min={0}
+                        disabled={!bulkFieldsEnabled.minStock}
+                        className="w-24 bg-white border-2 border-slate-200 rounded-xl px-4 py-2 text-center font-black focus:border-blue-500 outline-none disabled:opacity-30 transition-all"
+                        value={bulkUpdates.minStock ?? 0}
+                        onChange={e => setBulkUpdates({...bulkUpdates, minStock: Math.max(0, parseInt(e.target.value) || 0)})}
+                      />
+                   </div>
+                </div>
+
+                <div className="p-6 bg-slate-50 rounded-[2rem] border border-slate-100 space-y-4">
+                   <div className="flex items-center justify-between">
+                      <div className="flex items-center space-x-4">
                          <input type="checkbox" className="w-6 h-6 accent-blue-600 rounded" checked={bulkFieldsEnabled.reorderPoint} onChange={e => setBulkFieldsEnabled({...bulkFieldsEnabled, reorderPoint: e.target.checked})} />
                          <span className="text-[11px] font-black text-slate-900 uppercase tracking-widest">Reorder Threshold</span>
                       </div>
@@ -954,8 +1090,9 @@ const InventoryPage: React.FC = () => {
                         type="number"
                         disabled={!bulkFieldsEnabled.reorderPoint}
                         className="w-24 bg-white border-2 border-slate-200 rounded-xl px-4 py-2 text-center font-black focus:border-blue-500 outline-none disabled:opacity-30 transition-all"
-                        value={bulkUpdates.reorderPoint || 0}
-                        onChange={e => setBulkUpdates({...bulkUpdates, reorderPoint: parseInt(e.target.value)})}
+                        min={0}
+                        value={bulkUpdates.reorderPoint ?? 0}
+                        onChange={e => setBulkUpdates({...bulkUpdates, reorderPoint: Math.max(0, parseInt(e.target.value) || 0)})}
                       />
                    </div>
                 </div>

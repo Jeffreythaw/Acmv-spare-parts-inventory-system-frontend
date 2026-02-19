@@ -1,8 +1,9 @@
-import { api as mockApi } from './mockApi';
-import { Inventory, InventoryFilterOptions, PO, PR, PRStatus, Supplier, TxnType, StockTxn } from '../types';
+import { Inventory, InventoryFilterOptions, PO, PR, PRStatus, Supplier, TxnType, StockTxn, OrderSchedule, ScheduleStatus } from '../types';
 
 const BASE_URL = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '');
-const USE_REMOTE = Boolean(BASE_URL);
+if (!BASE_URL) {
+  throw new Error('Missing VITE_API_BASE_URL. Configure frontend .env.local to use backend API.');
+}
 
 type ApiResponse<T> = {
   success: boolean;
@@ -29,60 +30,67 @@ const request = async <T>(path: string, init?: RequestInit): Promise<T> => {
   return res.json() as Promise<T>;
 };
 
+const normalizeText = (value: any, fallback = ''): string => {
+  if (typeof value === 'string') return value;
+  if (value === null || value === undefined) return fallback;
+  return String(value);
+};
+
 const toFrontendInventory = (item: any): Inventory => ({
   id: item.id,
-  building: item.building,
-  room: item.room,
-  tagNo: item.tagNo,
-  installationType: item.installationType,
-  systemType: item.systemType,
-  brand: item.brand,
-  equipmentModel: item.equipmentModel,
-  partCategory: item.partCategory,
-  partName: item.partName,
-  partModel: item.partModel,
-  unit: item.unit || 'pcs',
+  building: normalizeText(item.building),
+  room: normalizeText(item.room),
+  tagNo: normalizeText(item.tagNo),
+  installationType: normalizeText(item.installationType),
+  systemType: normalizeText(item.systemType),
+  brand: normalizeText(item.brand),
+  equipmentModel: normalizeText(item.equipmentModel),
+  partCategory: normalizeText(item.partCategory),
+  partName: normalizeText(item.partName),
+  partModel: normalizeText(item.partModel),
+  unit: normalizeText(item.unit, 'pcs'),
   status: item.status,
   criticality: item.criticality,
-  image: item.imageBase64,
-  specs: item.specs,
+  image: normalizeText(item.imageBase64),
+  specs: normalizeText(item.specs),
   warrantyExpiry: item.warrantyExpiry,
-  remark: item.remark,
+  remark: normalizeText(item.remark),
   minStock: item.minStock ?? 1,
   reorderPoint: item.reorderPoint,
   reorderQty: item.reorderQty,
-  preferredSupplierId: item.preferredSupplierId,
-  locationBin: item.locationBin,
+  preferredSupplierId: normalizeText(item.preferredSupplierId),
+  locationBin: normalizeText(item.locationBin),
   quantityOnHand: item.quantityOnHand ?? 0,
   lastUpdated: item.lastUpdated || new Date().toISOString(),
-  rowVersion: String(item.rowVersion || '1'),
+  rowVersion: typeof item.rowVersion === 'string' ? item.rowVersion : '',
 });
 
 const toBackendInventory = (item: Partial<Inventory>) => ({
   id: item.id,
-  building: item.building,
-  room: item.room,
-  tagNo: item.tagNo,
-  installationType: item.installationType,
-  systemType: item.systemType,
-  brand: item.brand,
-  equipmentModel: item.equipmentModel,
-  partCategory: item.partCategory,
-  partName: item.partName,
-  partModel: item.partModel,
-  unit: item.unit,
+  building: normalizeText(item.building),
+  room: normalizeText(item.room),
+  tagNo: normalizeText(item.tagNo),
+  installationType: normalizeText(item.installationType),
+  systemType: normalizeText(item.systemType),
+  brand: normalizeText(item.brand),
+  equipmentModel: normalizeText(item.equipmentModel),
+  partCategory: normalizeText(item.partCategory),
+  partName: normalizeText(item.partName),
+  partModel: normalizeText(item.partModel),
+  unit: normalizeText(item.unit, 'pcs'),
   status: item.status,
   criticality: item.criticality,
-  imageBase64: item.image,
-  specs: item.specs,
+  imageBase64: normalizeText(item.image),
+  specs: normalizeText(item.specs),
   warrantyExpiry: item.warrantyExpiry || null,
-  remark: item.remark,
-  minStock: item.minStock,
+  remark: normalizeText(item.remark),
+  minStock: item.minStock ?? 1,
   reorderPoint: item.reorderPoint,
   reorderQty: item.reorderQty,
-  preferredSupplierId: item.preferredSupplierId,
-  locationBin: item.locationBin,
-  quantityOnHand: item.quantityOnHand,
+  preferredSupplierId: normalizeText(item.preferredSupplierId),
+  locationBin: normalizeText(item.locationBin),
+  quantityOnHand: item.quantityOnHand ?? 0,
+  rowVersion: item.rowVersion || undefined,
 });
 
 const toFrontendSupplier = (s: any): Supplier => ({
@@ -97,17 +105,16 @@ const toFrontendSupplier = (s: any): Supplier => ({
 
 const toBackendSupplier = (s: Partial<Supplier>) => ({
   id: s.id,
-  name: s.name,
-  email: s.email,
-  phone: s.phone,
-  address: s.address,
-  remark: s.remark,
+  name: normalizeText(s.name),
+  email: normalizeText(s.email),
+  phone: normalizeText(s.phone),
+  address: normalizeText(s.address),
+  remark: normalizeText(s.remark),
   isActive: s.active,
 });
 
 export const api = {
   getInventory: async (options: InventoryFilterOptions = {}) => {
-    if (!USE_REMOTE) return mockApi.getInventory(options);
     const query = new URLSearchParams();
     if (options.search) query.set('search', options.search);
     if (options.building) query.set('building', options.building);
@@ -123,7 +130,6 @@ export const api = {
   },
 
   saveInventory: async (item: Partial<Inventory>) => {
-    if (!USE_REMOTE) return mockApi.saveInventory(item);
     const payload = toBackendInventory(item);
     if (item.id) {
       await request(`/api/inventory/${item.id}`, { method: 'PUT', body: JSON.stringify(payload) });
@@ -134,7 +140,6 @@ export const api = {
   },
 
   bulkUpdateInventory: async (ids: string[], updates: Partial<Inventory>) => {
-    if (!USE_REMOTE) return mockApi.bulkUpdateInventory(ids, updates);
     const current = await api.getInventory();
     await Promise.all(ids.map(async (id) => {
       const existing = current.find(i => i.id === id);
@@ -145,24 +150,20 @@ export const api = {
   },
 
   deleteInventory: async (id: string) => {
-    if (!USE_REMOTE) return mockApi.deleteInventory(id);
     await request(`/api/inventory/${id}`, { method: 'DELETE' });
     return true;
   },
 
   bulkDeleteInventory: async (ids: string[]) => {
-    if (!USE_REMOTE) return mockApi.bulkDeleteInventory(ids);
     await Promise.all(ids.map(id => api.deleteInventory(id)));
     return true;
   },
 
   createTransaction: async (txn: any) => {
-    if (!USE_REMOTE) return mockApi.createTransaction(txn);
     return request(`/api/transactions`, { method: 'POST', body: JSON.stringify(txn) });
   },
 
   updateTransaction: async (txnId: string, updates: Partial<StockTxn>) => {
-    if (!USE_REMOTE) return mockApi.updateTransaction(txnId, updates);
     return request(`/api/transactions/${txnId}`, {
       method: 'PUT',
       body: JSON.stringify({ ...updates, id: txnId }),
@@ -170,28 +171,23 @@ export const api = {
   },
 
   deleteTransaction: async (txnId: string) => {
-    if (!USE_REMOTE) return mockApi.deleteTransaction(txnId);
     await request(`/api/transactions/${txnId}`, { method: 'DELETE' });
     return true;
   },
 
   getTransactions: async () => {
-    if (!USE_REMOTE) return mockApi.getTransactions();
     return request<StockTxn[]>(`/api/transactions`);
   },
 
   getPRs: async () => {
-    if (!USE_REMOTE) return mockApi.getPRs();
     return request<PR[]>(`/api/purchasing/pr`);
   },
 
   createPR: async (pr: any) => {
-    if (!USE_REMOTE) return mockApi.createPR(pr);
     return request<PR>(`/api/purchasing/pr`, { method: 'POST', body: JSON.stringify(pr) });
   },
 
   updatePRStatus: async (id: string, status: PRStatus) => {
-    if (!USE_REMOTE) return mockApi.updatePRStatus(id, status);
     if (status === PRStatus.APPROVED) {
       await request(`/api/purchasing/pr/${id}/approve`, { method: 'POST' });
       return true;
@@ -201,17 +197,14 @@ export const api = {
   },
 
   createPOFromPR: async (prId: string) => {
-    if (!USE_REMOTE) return mockApi.createPOFromPR(prId);
     return request<PO>(`/api/purchasing/pr/${prId}/convert-to-po`, { method: 'POST' });
   },
 
   getPOs: async () => {
-    if (!USE_REMOTE) return mockApi.getPOs();
     return request<PO[]>(`/api/purchasing/po`);
   },
 
   receivePO: async (poId: string, lines: any[]) => {
-    if (!USE_REMOTE) return mockApi.receivePO(poId, lines);
     const payload = lines.map(l => ({
       inventoryId: l.inventoryId,
       qtyReceived: l.qtyReceived || l.qty || 0,
@@ -225,13 +218,11 @@ export const api = {
   },
 
   getSuppliers: async () => {
-    if (!USE_REMOTE) return mockApi.getSuppliers();
     const data = await request<any[]>(`/api/suppliers`);
     return data.map(toFrontendSupplier);
   },
 
   saveSupplier: async (supp: Partial<Supplier>) => {
-    if (!USE_REMOTE) return mockApi.saveSupplier(supp);
     const payload = toBackendSupplier(supp);
     if (supp.id) {
       await request(`/api/suppliers/${supp.id}`, { method: 'PUT', body: JSON.stringify(payload) });
@@ -242,7 +233,6 @@ export const api = {
   },
 
   bulkUpdateSuppliers: async (ids: string[], updates: Partial<Supplier>) => {
-    if (!USE_REMOTE) return mockApi.bulkUpdateSuppliers(ids, updates);
     const current = await api.getSuppliers();
     await Promise.all(ids.map(async (id) => {
       const existing = current.find(s => s.id === id);
@@ -253,12 +243,10 @@ export const api = {
   },
 
   getSummary: async () => {
-    if (!USE_REMOTE) return mockApi.getSummary();
     return request(`/api/dashboard/summary`);
   },
 
   getReorderSuggestions: async () => {
-    if (!USE_REMOTE) return mockApi.getReorderSuggestions();
     const inventory = await api.getInventory();
     return inventory
       .filter(i => i.quantityOnHand <= (i.reorderPoint || i.minStock))
@@ -271,5 +259,29 @@ export const api = {
         suggestedQty: i.reorderQty || ((i.reorderPoint || i.minStock) - i.quantityOnHand + 5),
         preferredSupplierId: i.preferredSupplierId,
       }));
+  },
+
+  getOrderSchedules: async () => {
+    return request<OrderSchedule[]>(`/api/orderschedules`);
+  },
+
+  createOrderSchedule: async (schedule: Partial<OrderSchedule>) => {
+    return request<OrderSchedule>(`/api/orderschedules`, {
+      method: 'POST',
+      body: JSON.stringify(schedule),
+    });
+  },
+
+  updateOrderScheduleStatus: async (id: string, status: ScheduleStatus) => {
+    await request(`/api/orderschedules/${id}/status`, {
+      method: 'PATCH',
+      body: JSON.stringify(status),
+    });
+    return true;
+  },
+
+  deleteOrderSchedule: async (id: string) => {
+    await request(`/api/orderschedules/${id}`, { method: 'DELETE' });
+    return true;
   },
 };
