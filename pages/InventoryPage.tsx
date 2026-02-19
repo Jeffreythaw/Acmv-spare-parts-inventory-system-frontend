@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { api } from '../services/api';
 import { Inventory, PartStatus, Supplier, Criticality, StockTxn } from '../types';
 import { useAuth } from '../context/AuthContext';
@@ -74,6 +74,7 @@ const InventoryPage: React.FC = () => {
   const [filterBuilding, setFilterBuilding] = useState('All Buildings');
   const [filterCategory, setFilterCategory] = useState('All Categories');
   const [filterStatus, setFilterStatus] = useState('All Statuses');
+  const [filterStock, setFilterStock] = useState<'All Stock' | 'In Stock' | 'Low Stock' | 'Zero Stock'>('All Stock');
   const [isFilterVisible, setIsFilterVisible] = useState(false);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
@@ -173,6 +174,21 @@ const InventoryPage: React.FC = () => {
   }, [items]);
 
   useEffect(() => { fetchItems(); api.getSuppliers().then(setSuppliers); }, [search, filterBuilding, filterCategory, filterStatus]);
+
+  const displayedItems = useMemo(() => {
+    if (filterStock === 'All Stock') return items;
+    if (filterStock === 'Zero Stock') return items.filter(i => i.quantityOnHand === 0);
+    if (filterStock === 'Low Stock') return items.filter(i => i.quantityOnHand > 0 && i.quantityOnHand <= (i.reorderPoint || i.minStock));
+    return items.filter(i => i.quantityOnHand > (i.reorderPoint || i.minStock));
+  }, [items, filterStock]);
+
+  const resetFilters = () => {
+    setSearch('');
+    setFilterBuilding('All Buildings');
+    setFilterCategory('All Categories');
+    setFilterStatus('All Statuses');
+    setFilterStock('All Stock');
+  };
 
   const startCamera = async () => {
     setIsCameraActive(true);
@@ -321,7 +337,7 @@ const InventoryPage: React.FC = () => {
             <div className="flex items-center gap-2 overflow-x-auto pb-1 lg:pb-0 scrollbar-hide px-1">
               <button 
                 onClick={() => setIsFilterVisible(!isFilterVisible)}
-                className={`flex items-center space-x-2 border-2 px-5 py-3.5 rounded-2xl transition-all font-black text-[10px] uppercase tracking-widest whitespace-nowrap ${isFilterVisible || (filterBuilding !== 'All Buildings' || filterCategory !== 'All Categories' || filterStatus !== 'All Statuses') ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white border-slate-100 text-slate-600'}`}
+                className={`flex items-center space-x-2 border-2 px-5 py-3.5 rounded-2xl transition-all font-black text-[10px] uppercase tracking-widest whitespace-nowrap ${isFilterVisible || (filterBuilding !== 'All Buildings' || filterCategory !== 'All Categories' || filterStatus !== 'All Statuses' || filterStock !== 'All Stock') ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white border-slate-100 text-slate-600'}`}
               >
                 <SlidersHorizontal size={14} />
                 <span>Filters</span>
@@ -372,7 +388,8 @@ const InventoryPage: React.FC = () => {
           </div>
 
           {isFilterVisible && (
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-4 border-t border-slate-100">
+            <div className="space-y-4 pt-4 border-t border-slate-100">
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               <select className="bg-slate-50 border-2 border-slate-100 rounded-xl p-3 text-xs font-black" value={filterBuilding} onChange={e => setFilterBuilding(e.target.value)}>
                 <option>All Buildings</option>{buildingOptions.map(b => <option key={b}>{b}</option>)}
               </select>
@@ -382,6 +399,24 @@ const InventoryPage: React.FC = () => {
               <select className="bg-slate-50 border-2 border-slate-100 rounded-xl p-3 text-xs font-black" value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
                 <option>All Statuses</option>{Object.values(PartStatus).map(s => <option key={s}>{s}</option>)}
               </select>
+              <select className="bg-slate-50 border-2 border-slate-100 rounded-xl p-3 text-xs font-black" value={filterStock} onChange={e => setFilterStock(e.target.value as any)}>
+                <option>All Stock</option>
+                <option>In Stock</option>
+                <option>Low Stock</option>
+                <option>Zero Stock</option>
+              </select>
+              </div>
+              <div className="flex items-center justify-between">
+                <div className="text-[11px] font-semibold text-slate-500">
+                  Showing <span className="text-slate-800">{displayedItems.length}</span> of <span className="text-slate-800">{items.length}</span> record(s)
+                </div>
+                <button
+                  onClick={resetFilters}
+                  className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-semibold text-slate-600 hover:border-blue-300 hover:text-blue-600"
+                >
+                  Reset Filters
+                </button>
+              </div>
             </div>
           )}
         </div>
@@ -394,10 +429,10 @@ const InventoryPage: React.FC = () => {
             <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
             <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Hydrating Catalog Registry...</p>
           </div>
-        ) : items.length === 0 ? (
+        ) : displayedItems.length === 0 ? (
           <div className="py-32 text-center bg-white">
             <Package className="mx-auto text-slate-100 mb-4" size={48} />
-            <p className="text-slate-400 font-black text-[10px] uppercase tracking-[0.2em]">Asset Registry Empty</p>
+            <p className="text-slate-400 font-black text-[10px] uppercase tracking-[0.2em]">No Results For Current Filters</p>
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -417,7 +452,7 @@ const InventoryPage: React.FC = () => {
                 </tr>
               </thead>
               <tbody>
-                {items.map(item => {
+                {displayedItems.map(item => {
                   const isSelected = selectedIds.includes(item.id);
                   const supplierName = suppliers.find(s => s.id === item.preferredSupplierId)?.name || '--';
                   return (

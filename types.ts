@@ -163,6 +163,7 @@ export interface ReorderSuggestion {
 export interface OrderScheduleLine {
   inventoryId: string;
   qty: number;
+  receivedQty: number;
 }
 
 export interface OrderSchedule {

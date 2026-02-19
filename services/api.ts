@@ -119,6 +119,7 @@ export const api = {
     if (options.search) query.set('search', options.search);
     if (options.building) query.set('building', options.building);
     if (options.category) query.set('category', options.category);
+    if (options.status && options.status !== 'All Statuses') query.set('status', options.status);
     const path = query.toString() ? `/api/inventory?${query.toString()}` : '/api/inventory';
     const res = await request<ApiResponse<any[]>>(path);
     return (res.data || []).map(toFrontendInventory);
@@ -278,6 +279,24 @@ export const api = {
       body: JSON.stringify(status),
     });
     return true;
+  },
+
+  rescheduleOrderSchedule: async (id: string, scheduledDate: string) => {
+    return request<OrderSchedule>(`/api/orderschedules/${id}/reschedule`, {
+      method: 'PATCH',
+      body: JSON.stringify({ scheduledDate }),
+    });
+  },
+
+  receiveOrderSchedule: async (id: string, lines: Array<{ inventoryId: string; qtyReceived: number }>) => {
+    const payload = lines.map((line) => ({
+      inventoryId: line.inventoryId,
+      qtyReceived: line.qtyReceived,
+    }));
+    return request<OrderSchedule>(`/api/orderschedules/${id}/receive`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
   },
 
   deleteOrderSchedule: async (id: string) => {

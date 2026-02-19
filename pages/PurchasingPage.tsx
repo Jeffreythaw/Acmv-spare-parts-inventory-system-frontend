@@ -33,6 +33,11 @@ const toDateInputValue = (date: Date) => {
   return `${y}-${m}-${d}`;
 };
 
+const toIsoDateFromInput = (dateInput: string) => {
+  const d = new Date(`${dateInput}T00:00:00`);
+  return Number.isNaN(d.getTime()) ? '' : d.toISOString();
+};
+
 const startOfMonth = (date: Date) => new Date(date.getFullYear(), date.getMonth(), 1);
 
 const addCalendarDays = (date: Date, days: number) => new Date(date.getTime() + days * DAY_MS);
@@ -54,11 +59,14 @@ const PurchasingPage: React.FC = () => {
 
   const [receivingPO, setReceivingPO] = useState<PO | null>(null);
   const [receiveRows, setReceiveRows] = useState<ReceiveRow[]>([]);
+  const [receivingSchedule, setReceivingSchedule] = useState<OrderSchedule | null>(null);
+  const [scheduleReceiveRows, setScheduleReceiveRows] = useState<ReceiveRow[]>([]);
 
   const [scheduleDate, setScheduleDate] = useState('');
   const [scheduleSupplierId, setScheduleSupplierId] = useState('');
   const [scheduleRemark, setScheduleRemark] = useState('');
   const [calendarMonth, setCalendarMonth] = useState(startOfMonth(new Date()));
+  const [draftEquipmentModel, setDraftEquipmentModel] = useState('');
   const [draftPartId, setDraftPartId] = useState('');
   const [draftQty, setDraftQty] = useState(1);
   const [scheduleLines, setScheduleLines] = useState<Array<{ inventoryId: string; qty: number }>>([]);
@@ -85,7 +93,26 @@ const PurchasingPage: React.FC = () => {
     fetchData();
   }, []);
 
+  const equipmentModelOptions = useMemo(
+    () =>
+      Array.from(new Set(inventory.map((i) => (i.equipmentModel || '').trim()).filter(Boolean)))
+        .sort((a, b) => a.localeCompare(b)),
+    [inventory]
+  );
+
+  const draftPartOptions = useMemo(
+    () => inventory.filter((item) => (item.equipmentModel || '').trim() === draftEquipmentModel),
+    [draftEquipmentModel, inventory]
+  );
+
   const getPartName = (inventoryId: string) => inventory.find((i) => i.id === inventoryId)?.partName || inventoryId;
+  const getPartLabel = (inventoryId: string) => {
+    const item = inventory.find((i) => i.id === inventoryId);
+    if (!item) return inventoryId;
+    const model = item.equipmentModel ? ` | ${item.equipmentModel}` : '';
+    const tag = item.tagNo ? ` | ${item.tagNo}` : '';
+    return `${item.partName}${model}${tag}`;
+  };
   const getSupplierName = (supplierId: string) => suppliers.find((s) => s.id === supplierId)?.name || supplierId || '-';
 
   const poScheduleRows = useMemo(() => {
@@ -134,16 +161,24 @@ const PurchasingPage: React.FC = () => {
       const date = new Date(s.scheduledDate);
       const isPast = date < today;
       const isSoon = date >= today && date <= dueSoonDate;
+      const totalQty = s.lines.reduce((sum, line) => sum + line.qty, 0);
+      const receivedQty = s.lines.reduce((sum, line) => sum + (line.receivedQty || 0), 0);
+      const outstandingQty = Math.max(totalQty - receivedQty, 0);
+      const partial = receivedQty > 0 && outstandingQty > 0;
 
       return {
         ...s,
         partsCount: s.lines.length,
-        totalQty: s.lines.reduce((sum, line) => sum + line.qty, 0),
+        totalQty,
+        receivedQty,
+        outstandingQty,
         state:
-          s.status === ScheduleStatus.COMPLETED
+          s.status === ScheduleStatus.CANCELLED
+            ? 'Cancelled'
+            : s.status === ScheduleStatus.COMPLETED || outstandingQty === 0
             ? 'Completed'
-            : s.status === ScheduleStatus.CANCELLED
-              ? 'Cancelled'
+            : partial
+              ? 'Partial Receive'
               : isPast
                 ? 'Delayed'
                 : isSoon
@@ -152,6 +187,16 @@ const PurchasingPage: React.FC = () => {
       };
     });
   }, [schedules]);
+
+  const poPartialCount = useMemo(
+    () => poScheduleRows.filter((r) => r.state === 'Partial Receive').length,
+    [poScheduleRows]
+  );
+
+  const schedulePartialCount = useMemo(
+    () => scheduleCalendarRows.filter((s) => s.state === 'Partial Receive').length,
+    [scheduleCalendarRows]
+  );
 
   const monthScheduleMap = useMemo(() => {
     const map = new Map<string, number>();
@@ -175,20 +220,23 @@ const PurchasingPage: React.FC = () => {
 
   const notifications = useMemo(() => {
     const delayedPO = poScheduleRows.filter((r) => r.state === 'Delayed').length;
-    const partial = poScheduleRows.filter((r) => r.state === 'Partial Receive').length;
+    const partial = poPartialCount + schedulePartialCount;
     const dueSoonSchedule = scheduleCalendarRows.filter((s) => s.state === 'Due Soon').length;
     const delayedSchedule = scheduleCalendarRows.filter((s) => s.state === 'Delayed').length;
 
     const items: Array<{ type: 'danger' | 'warning' | 'info'; title: string; detail: string }> = [];
 
     scheduleCalendarRows
-      .filter((s) => s.state === 'Due Soon' || s.state === 'Delayed')
+      .filter((s) => s.state === 'Due Soon' || s.state === 'Delayed' || s.state === 'Partial Receive')
       .slice(0, 6)
       .forEach((s) => {
         items.push({
-          type: s.state === 'Delayed' ? 'danger' : 'info',
-          title: `Schedule ${s.state}: ${formatDate(s.scheduledDate)}`,
-          detail: `${s.partsCount} part(s) • Qty ${s.totalQty} • ${getSupplierName(s.supplierId)}`,
+          type: s.state === 'Delayed' ? 'danger' : s.state === 'Partial Receive' ? 'warning' : 'info',
+          title:
+            s.state === 'Partial Receive'
+              ? `Schedule Partial: ${formatDate(s.scheduledDate)}`
+              : `Schedule ${s.state}: ${formatDate(s.scheduledDate)}`,
+          detail: `${s.partsCount} part(s) • Ordered ${s.totalQty} • Received ${s.receivedQty} • ${getSupplierName(s.supplierId)}`,
         });
       });
 
@@ -206,9 +254,13 @@ const PurchasingPage: React.FC = () => {
       dueSoonCount: dueSoonSchedule,
       items,
     };
-  }, [poScheduleRows, scheduleCalendarRows, suppliers]);
+  }, [poPartialCount, poScheduleRows, scheduleCalendarRows, schedulePartialCount, suppliers]);
 
   const addScheduleLine = () => {
+    if (!draftEquipmentModel) {
+      alert('Please select equipment model first.');
+      return;
+    }
     if (!draftPartId || draftQty <= 0) return;
     setScheduleLines((prev) => {
       const idx = prev.findIndex((line) => line.inventoryId === draftPartId);
@@ -219,6 +271,7 @@ const PurchasingPage: React.FC = () => {
       }
       return [...prev, { inventoryId: draftPartId, qty: draftQty }];
     });
+    setDraftPartId('');
     setDraftQty(1);
   };
 
@@ -240,11 +293,11 @@ const PurchasingPage: React.FC = () => {
     try {
       await api.createOrderSchedule({
         scheduledDate: new Date(scheduleDate).toISOString(),
-        createdBy: user.name,
+        createdBy: user?.name || 'Storekeeper',
         supplierId: scheduleSupplierId || '',
         remark: scheduleRemark || '',
         status: ScheduleStatus.SCHEDULED,
-        lines: scheduleLines,
+        lines: scheduleLines.map((line) => ({ ...line, receivedQty: 0 })),
       });
 
       setScheduleDate('');
@@ -269,6 +322,18 @@ const PurchasingPage: React.FC = () => {
     );
   };
 
+  const openReceiveScheduleModal = (scheduleId: string) => {
+    const schedule = schedules.find((s) => s.id === scheduleId);
+    if (!schedule) return;
+    setReceivingSchedule(schedule);
+    setScheduleReceiveRows(
+      schedule.lines.map((line) => ({
+        inventoryId: line.inventoryId,
+        qtyReceived: Math.max(line.qty - (line.receivedQty || 0), 0),
+      }))
+    );
+  };
+
   const submitReceive = async () => {
     if (!receivingPO) return;
     const payload = receiveRows
@@ -286,6 +351,62 @@ const PurchasingPage: React.FC = () => {
       await fetchData();
     } catch (err: any) {
       alert(err.message || 'Receive failed');
+    }
+  };
+
+  const submitScheduleReceive = async () => {
+    if (!receivingSchedule) return;
+    const payload = scheduleReceiveRows
+      .filter((r) => r.qtyReceived > 0)
+      .map((r) => ({ inventoryId: r.inventoryId, qtyReceived: r.qtyReceived }));
+
+    if (payload.length === 0) {
+      alert('Please input at least one received quantity.');
+      return;
+    }
+
+    try {
+      await api.receiveOrderSchedule(receivingSchedule.id, payload);
+      setReceivingSchedule(null);
+      await fetchData();
+    } catch (err: any) {
+      alert(err.message || 'Schedule receive failed');
+    }
+  };
+
+  const quickReceiveOne = async (poId: string, inventoryId: string, outstanding: number) => {
+    if (outstanding <= 0) return;
+    try {
+      await api.receivePO(poId, [{ inventoryId, qtyReceived: 1 }]);
+      await fetchData();
+    } catch (err: any) {
+      alert(err.message || 'Quick receive failed');
+    }
+  };
+
+  const updateScheduleStatus = async (id: string, status: ScheduleStatus) => {
+    try {
+      await api.updateOrderScheduleStatus(id, status);
+      await fetchData();
+    } catch (err: any) {
+      alert(err.message || 'Update schedule status failed');
+    }
+  };
+
+  const postponeSchedule = async (id: string, currentDate: string) => {
+    const current = toDateInputValue(new Date(currentDate));
+    const picked = window.prompt('Enter new schedule date (YYYY-MM-DD):', current);
+    if (!picked) return;
+    const iso = toIsoDateFromInput(picked.trim());
+    if (!iso) {
+      alert('Invalid date format. Use YYYY-MM-DD.');
+      return;
+    }
+    try {
+      await api.rescheduleOrderSchedule(id, iso);
+      await fetchData();
+    } catch (err: any) {
+      alert(err.message || 'Postpone schedule failed');
     }
   };
 
@@ -399,17 +520,39 @@ const PurchasingPage: React.FC = () => {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_140px_auto]">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            <select
+              value={draftEquipmentModel}
+              onChange={(e) => {
+                setDraftEquipmentModel(e.target.value);
+                setDraftPartId('');
+              }}
+              className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+            >
+              <option value="">Select equipment model</option>
+              {equipmentModelOptions.map((model) => (
+                <option key={model} value={model}>{model}</option>
+              ))}
+            </select>
             <select
               value={draftPartId}
               onChange={(e) => setDraftPartId(e.target.value)}
-              className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+              disabled={!draftEquipmentModel}
+              className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm disabled:cursor-not-allowed disabled:bg-slate-100"
             >
-              <option value="">Select part</option>
-              {inventory.map((item) => (
-                <option key={item.id} value={item.id}>{item.partName} ({item.tagNo || item.id})</option>
+              <option value="">{draftEquipmentModel ? 'Select part' : 'Select equipment model first'}</option>
+              {draftPartOptions.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.partName} ({item.tagNo || item.id})
+                </option>
               ))}
             </select>
+          </div>
+
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_140px_auto]">
+            <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
+              {draftPartId ? getPartLabel(draftPartId) : 'Choose equipment model and part first'}
+            </div>
             <input
               type="number"
               min={1}
@@ -440,7 +583,7 @@ const PurchasingPage: React.FC = () => {
                 <tbody>
                   {scheduleLines.map((line) => (
                     <tr key={line.inventoryId}>
-                      <td className="border-b border-r border-slate-200 px-3 py-2">{getPartName(line.inventoryId)}</td>
+                      <td className="border-b border-r border-slate-200 px-3 py-2">{getPartLabel(line.inventoryId)}</td>
                       <td className="border-b border-r border-slate-200 px-3 py-2 text-right font-semibold">{line.qty}</td>
                       <td className="border-b border-slate-200 px-3 py-2 text-right">
                         <button type="button" onClick={() => removeScheduleLine(line.inventoryId)} className="text-rose-600 hover:text-rose-700">
@@ -454,7 +597,11 @@ const PurchasingPage: React.FC = () => {
             </div>
           )}
 
-          <button type="submit" className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800">
+          <button
+            type="submit"
+            disabled={!scheduleDate || scheduleLines.length === 0}
+            className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
+          >
             Save Schedule Order
           </button>
         </form>
@@ -492,20 +639,26 @@ const PurchasingPage: React.FC = () => {
       </section>
 
       <section className="rounded-2xl border border-slate-200 bg-white p-5">
+        <div className="mb-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-[11px] text-slate-600">
+          <span className="font-bold text-slate-800">Process:</span> Create schedule, monitor due date, use <span className="font-semibold">Postpone</span> or <span className="font-semibold">Cancel</span> when needed, then post actual goods using <span className="font-semibold">Receive</span> in Calendar Order Schedule (supports partial receive).
+        </div>
         <h2 className="mb-3 text-sm font-bold text-slate-900">Calendar Order Schedule</h2>
         {scheduleCalendarRows.length === 0 ? (
           <p className="text-xs text-slate-500">No schedule order yet.</p>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[860px] border-collapse text-xs">
+            <table className="w-full min-w-[980px] border-collapse text-xs">
               <thead>
                 <tr className="bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500">
                   <th className="border-b border-r border-slate-200 px-3 py-2 text-left">Date</th>
                   <th className="border-b border-r border-slate-200 px-3 py-2 text-left">Supplier</th>
                   <th className="border-b border-r border-slate-200 px-3 py-2 text-right">Parts</th>
-                  <th className="border-b border-r border-slate-200 px-3 py-2 text-right">Total Qty</th>
+                  <th className="border-b border-r border-slate-200 px-3 py-2 text-right">Ordered Qty</th>
+                  <th className="border-b border-r border-slate-200 px-3 py-2 text-right">Received Qty</th>
+                  <th className="border-b border-r border-slate-200 px-3 py-2 text-right">Outstanding</th>
                   <th className="border-b border-r border-slate-200 px-3 py-2 text-center">Status</th>
-                  <th className="border-b border-slate-200 px-3 py-2 text-left">Remark</th>
+                  <th className="border-b border-r border-slate-200 px-3 py-2 text-left">Remark</th>
+                  <th className="border-b border-slate-200 px-3 py-2 text-right">Action</th>
                 </tr>
               </thead>
               <tbody>
@@ -515,10 +668,47 @@ const PurchasingPage: React.FC = () => {
                     <td className="border-b border-r border-slate-200 px-3 py-2 text-slate-700">{getSupplierName(row.supplierId)}</td>
                     <td className="border-b border-r border-slate-200 px-3 py-2 text-right">{row.partsCount}</td>
                     <td className="border-b border-r border-slate-200 px-3 py-2 text-right font-semibold">{row.totalQty}</td>
+                    <td className="border-b border-r border-slate-200 px-3 py-2 text-right">{row.receivedQty}</td>
+                    <td className="border-b border-r border-slate-200 px-3 py-2 text-right font-semibold">{row.outstandingQty}</td>
                     <td className="border-b border-r border-slate-200 px-3 py-2 text-center">
                       <span className={`rounded-md px-2 py-1 text-[10px] font-semibold ${stateBadgeClass(row.state)}`}>{row.state}</span>
                     </td>
-                    <td className="border-b border-slate-200 px-3 py-2 text-slate-600">{row.remark || '-'}</td>
+                    <td className="border-b border-r border-slate-200 px-3 py-2 text-slate-600">{row.remark || '-'}</td>
+                    <td className="border-b border-slate-200 px-3 py-2 text-right">
+                      {row.status === ScheduleStatus.SCHEDULED ? (
+                        <div className="inline-flex items-center gap-1">
+                          <button
+                            onClick={() => openReceiveScheduleModal(row.id)}
+                            disabled={row.outstandingQty <= 0}
+                            className="rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-[10px] font-semibold text-emerald-700 hover:border-emerald-300 disabled:cursor-not-allowed disabled:opacity-40"
+                          >
+                            Receive
+                          </button>
+                          <button
+                            onClick={() => postponeSchedule(row.id, row.scheduledDate)}
+                            className="rounded-md border border-slate-200 bg-white px-2 py-1 text-[10px] font-semibold text-slate-700 hover:border-blue-300 hover:text-blue-700"
+                          >
+                            Postpone
+                          </button>
+                          <button
+                            onClick={() => updateScheduleStatus(row.id, ScheduleStatus.CANCELLED)}
+                            className="rounded-md border border-rose-200 bg-rose-50 px-2 py-1 text-[10px] font-semibold text-rose-700 hover:border-rose-300"
+                          >
+                            Cancel
+                          </button>
+                          {row.outstandingQty === 0 && (
+                            <button
+                              onClick={() => updateScheduleStatus(row.id, ScheduleStatus.COMPLETED)}
+                              className="rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-[10px] font-semibold text-emerald-700 hover:border-emerald-300"
+                            >
+                              Complete
+                            </button>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-[10px] text-slate-400">-</span>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -564,12 +754,21 @@ const PurchasingPage: React.FC = () => {
                     </td>
                     <td className="border-b border-slate-200 px-3 py-2 text-right">
                       {row.outstanding > 0 ? (
-                        <button
-                          onClick={() => openReceiveModal(row.poId)}
-                          className="rounded-md border border-slate-200 bg-white px-2.5 py-1 text-[10px] font-semibold text-slate-700 hover:border-blue-300 hover:text-blue-600"
-                        >
-                          Receive
-                        </button>
+                        <div className="inline-flex items-center gap-1">
+                          <button
+                            onClick={() => quickReceiveOne(row.poId, row.inventoryId, row.outstanding)}
+                            className="rounded-md border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[10px] font-semibold text-emerald-700 hover:border-emerald-300"
+                            title="Quick receive 1 qty"
+                          >
+                            +1
+                          </button>
+                          <button
+                            onClick={() => openReceiveModal(row.poId)}
+                            className="rounded-md border border-slate-200 bg-white px-2.5 py-1 text-[10px] font-semibold text-slate-700 hover:border-blue-300 hover:text-blue-600"
+                          >
+                            Receive
+                          </button>
+                        </div>
                       ) : (
                         <span className="text-[10px] text-slate-400">-</span>
                       )}
@@ -628,6 +827,60 @@ const PurchasingPage: React.FC = () => {
                 Cancel
               </button>
               <button onClick={submitReceive} className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800">
+                Confirm Receive
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {receivingSchedule && (
+        <div className="fixed inset-0 z-[120] flex items-end sm:items-center justify-center bg-slate-900/60 p-0 sm:p-6">
+          <div className="w-full sm:max-w-2xl rounded-t-[2rem] sm:rounded-2xl bg-white shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
+              <div>
+                <h3 className="text-lg font-bold text-slate-900">Receive Schedule Goods</h3>
+                <p className="text-xs text-slate-500">{formatDate(receivingSchedule.scheduledDate)} • {getSupplierName(receivingSchedule.supplierId)}</p>
+              </div>
+              <button onClick={() => setReceivingSchedule(null)} className="rounded-lg p-2 text-slate-500 hover:bg-slate-100">
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="max-h-[55vh] overflow-y-auto px-6 py-5 space-y-3">
+              {receivingSchedule.lines.map((line) => {
+                const currentReceived = line.receivedQty || 0;
+                const pending = Math.max(line.qty - currentReceived, 0);
+                const row = scheduleReceiveRows.find((r) => r.inventoryId === line.inventoryId);
+                return (
+                  <div key={line.inventoryId} className="grid grid-cols-1 gap-3 rounded-xl border border-slate-200 p-3 sm:grid-cols-[1fr_170px] sm:items-center">
+                    <div>
+                      <div className="text-sm font-semibold text-slate-900">{getPartName(line.inventoryId)}</div>
+                      <div className="text-[11px] text-slate-500">Received {currentReceived} / {line.qty} • Pending {pending}</div>
+                    </div>
+                    <input
+                      type="number"
+                      min={0}
+                      max={pending}
+                      value={row?.qtyReceived ?? 0}
+                      onChange={(e) => {
+                        const value = Math.max(0, Math.min(parseInt(e.target.value) || 0, pending));
+                        setScheduleReceiveRows((prev) =>
+                          prev.map((r) => (r.inventoryId === line.inventoryId ? { ...r, qtyReceived: value } : r))
+                        );
+                      }}
+                      className="w-full rounded-lg border border-slate-200 px-3 py-2 text-right text-sm font-semibold text-slate-900"
+                    />
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="flex justify-end gap-2 border-t border-slate-100 px-6 py-4">
+              <button onClick={() => setReceivingSchedule(null)} className="rounded-lg px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100">
+                Cancel
+              </button>
+              <button onClick={submitScheduleReceive} className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800">
                 Confirm Receive
               </button>
             </div>
